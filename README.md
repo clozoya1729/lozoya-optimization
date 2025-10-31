@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/optimization.png" width="175">
+  <img src="_assets/optimization.png" width="175">
 </p>
 
 # lozoya-optimization
