@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lozoya | Optimization (Dark)</title>
+    <style>
+        body {
+            background-color: #012;
+            color: #e2e8f0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 16px;
+            line-height: 1.4;
+        }
+
+        h1 {
+            color: #6af;
+        }
+
+        .row {
+            margin: 12px 0;
+        }
+
+        select, button {
+            font: inherit;
+            padding: 6px 10px;
+            background-color: #1e293b;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            border-radius: 4px;
+        }
+
+        :is(select, button):hover {
+            border: 1px solid #abe;
+        }
+
+        button:hover {
+            background-color: #334155;
+        }
+
+        .out {
+            white-space: pre-wrap;
+            background: #123;
+            padding: 8px;
+            border: 1px solid #446;
+            border-radius: 6px;
+        }
+
+        #plot {
+            width: 100%;
+            height: 440px;
+            border: 1px solid #68a;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        a {
+            color: #38bdf8;
+        }
+    </style>
+    <script>window.MathJax = {tex: {inlineMath: [['$', '$'], ['\\(', '\\)']]}};</script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2"></script>
+</head>
+<body>
+<h1>Lozoya | Optimization</h1>
+<div class="row"><strong>Objective:</strong> <span id="eq">minimize $f(x)=(x-3)^2$</span></div>
+<div class="row controls">
+    <label for="fn-select"><strong>Function:</strong></label>
+    <select id="fn-select"></select>
+    <label for="optimizer-select"><strong>Optimizer:</strong></label>
+    <select id="optimizer-select"></select>
+    <button id="run-btn">Run</button>
+</div>
+<div id="plot"></div>
+<div class="row"><strong>Result</strong></div>
+<div class="row out" id="out">Waiting...</div>
+<script src="math.js"></script>
+<script src="optimizers.js"></script>
+<script>
+    const FUNCTIONS = {
+        parabola: {
+            label: 'Parabola',
+            exprTeX: 'minimize $f(x)=(x-3)^2$',
+            domain: [-6, 12],
+            cost: ({inputs}) => {
+                const x = inputs.x;
+                return (x - 3) * (x - 3);
+            }
+        },
+        absval: {
+            label: 'Absolute',
+            exprTeX: 'minimize $f(x)=|x-2|$',
+            domain: [-6, 12],
+            cost: ({inputs}) => Math.abs(inputs.x - 2)
+        },
+        doublewell: {
+            label: 'Double well',
+            exprTeX: 'minimize $f(x)=x^4-x^2$',
+            domain: [-2.5, 2.5],
+            cost: ({inputs}) => {
+                const x = inputs.x;
+                return x ** 4 - x ** 2;
+            }
+        },
+        sinus: {
+            label: 'Sinusoidal',
+            exprTeX: 'minimize $f(x)=\\sin(x)+0.1x$',
+            domain: [-6, 12],
+            cost: ({inputs}) => Math.sin(inputs.x) + 0.1 * inputs.x
+        },
+        quartic_shift: {
+            label: 'Quartic',
+            exprTeX: 'minimize $f(x)=(x-1)^4+0.5(x-1)^2$',
+            domain: [-6, 12],
+            cost: ({inputs}) => {
+                const t = inputs.x - 1;
+                return t ** 4 + 0.5 * t ** 2;
+            }
+        }
+    };
+
+    const OPTIMIZERS = {
+        particle_swarm: typeof optimization_particle_swarm === 'function' ? optimization_particle_swarm : null,
+        simulated_annealing: typeof optimization_simulated_annealing === 'function' ? optimization_simulated_annealing : null,
+        gradient_descent: typeof optimization_gradient_descent === 'function' ? optimization_gradient_descent : null,
+        genetic_algorithm: typeof optimization_genetic_algorithm === 'function' ? optimization_genetic_algorithm : null,
+        ant_colony: typeof optimization_ant_colony === 'function' ? optimization_ant_colony : null,
+        cma_es: typeof optimization_cma_es === 'function' ? optimization_cma_es : null
+    };
+
+    function populate_dropdowns() {
+        const fsel = document.getElementById('fn-select');
+        Object.entries(FUNCTIONS).forEach(([k, v]) => {
+            const o = document.createElement('option');
+            o.value = k;
+            o.textContent = v.label;
+            fsel.appendChild(o);
+        });
+        const osel = document.getElementById('optimizer-select');
+        Object.entries(OPTIMIZERS).forEach(([k, fn]) => {
+            if (typeof fn === 'function') {
+                const o = document.createElement('option');
+                o.value = k;
+                o.textContent = k;
+                osel.appendChild(o);
+            }
+        });
+    }
+
+    function sample_curve(cost, [xmin, xmax], step = 0.02) {
+        const xs = [], ys = [];
+        for (let x = xmin; x <= xmax; x += step) {
+            xs.push(x);
+            ys.push(cost({inputs: {x}}));
+        }
+        return {xs, ys};
+    }
+
+    function argmin_by_sampling(cost, [xmin, xmax], step = 0.001) {
+        let bx = xmin, by = cost({inputs: {x: xmin}});
+        for (let x = xmin + step; x <= xmax; x += step) {
+            const y = cost({inputs: {x}});
+            if (y < by) {
+                by = y;
+                bx = x;
+            }
+        }
+        return {x: bx, y: by};
+    }
+
+    function plot_initialize(cost, domain) {
+        const {xs, ys} = sample_curve(cost, domain, 0.02);
+        const trueMin = argmin_by_sampling(cost, domain, 0.001);
+        const curve = {x: xs, y: ys, mode: 'lines', name: 'f(x)', line: {color: '#38bdf8'}};
+        const ref = {
+            x: [trueMin.x],
+            y: [trueMin.y],
+            mode: 'markers',
+            name: 'true min',
+            marker: {size: 10, color: '#facc15', symbol: 'x'}
+        };
+        const found = {
+            x: [null],
+            y: [null],
+            mode: 'markers',
+            name: 'optimizer result',
+            marker: {size: 10, color: '#22c55e'}
+        };
+        const layout = {
+            paper_bgcolor: '#011', plot_bgcolor: '#112', font: {color: '#f1f5f9'},
+            title: {text: 'Objective and optimizer result', font: {color: '#8be'}},
+            xaxis: {title: 'x', gridcolor: '#1e293b', zerolinecolor: '#475569'},
+            yaxis: {title: 'f(x)', gridcolor: '#1e293b', zerolinecolor: '#475569'},
+            shapes: [{
+                type: 'line',
+                x0: trueMin.x,
+                x1: trueMin.x,
+                y0: Math.min(...ys),
+                y1: Math.max(...ys),
+                line: {width: 1, dash: 'dot', color: '#64748b'}
+            }],
+            margin: {l: 48, r: 24, t: 48, b: 48}
+        };
+        Plotly.newPlot('plot', [curve, ref, found], layout, {responsive: true, displaylogo: false});
+    }
+
+    function plot_update_with_result(cost, xstar) {
+        const ystar = cost({inputs: {x: xstar}});
+        Plotly.restyle('plot', {x: [[xstar]], y: [[ystar]]}, 2);
+    }
+
+    function equation_refresh(tex) {
+        const el = document.getElementById('eq');
+        el.innerHTML = tex;
+        if (window.MathJax?.typesetPromise) {
+            MathJax.typesetPromise([el]);
+        }
+    }
+
+    function plot_reset_for_function(cost, domain) {
+        const {xs, ys} = sample_curve(cost, domain, 0.02);
+        const trueMin = argmin_by_sampling(cost, domain, 0.001);
+        Plotly.restyle('plot', {x: [xs, [trueMin.x], [null]], y: [ys, [trueMin.y], [null]]}, [0, 1, 2]);
+        Plotly.relayout('plot', {
+            'xaxis.range': [domain[0], domain[1]],
+            'yaxis.autorange': true,
+            'shapes[0].x0': trueMin.x,
+            'shapes[0].x1': trueMin.x
+        });
+    }
+
+    async function run_selected() {
+        const fk = document.getElementById('fn-select').value;
+        const ok = document.getElementById('optimizer-select').value;
+        const fn = OPTIMIZERS[ok], fdef = FUNCTIONS[fk];
+        if (!fn) {
+            document.getElementById('out').textContent = `Unknown optimizer: ${ok}`;
+            return;
+        }
+        const initial = {x: 0}, bounds = {x: {min: fdef.domain[0], max: fdef.domain[1]}};
+        const params = {
+            iterations: 300,
+            patience: 150,
+            costTolerance: 1e-12,
+            bounds,
+            renderEvery: 50,
+            update_inputs_and_scene: () => {
+            },
+            iteration_callback: () => {
+            }
+        };
+        const result = await fn(fdef.cost, initial, params);
+        const xstar = result?.inputs?.x;
+        plot_update_with_result(fdef.cost, xstar);
+        document.getElementById('out').textContent = [
+            `function: ${fdef.label}`,
+            `optimizer: ${ok}`,
+            `x*: ${xstar.toPrecision(2)}`,
+            `cost*: ${result?.cost.toPrecision(2)}`,
+            `converged: ${result?.converged === true}`].join('\n');
+    }
+
+    document.getElementById('run-btn').addEventListener('click', run_selected);
+    populate_dropdowns();
+    const firstKey = Object.keys(FUNCTIONS)[0];
+    equation_refresh(FUNCTIONS[firstKey].exprTeX);
+    plot_initialize(FUNCTIONS[firstKey].cost, FUNCTIONS[firstKey].domain);
+    document.getElementById('fn-select').addEventListener('change', e => {
+        const fk = e.target.value;
+        const fdef = FUNCTIONS[fk];
+        equation_refresh(fdef.exprTeX);
+        plot_reset_for_function(fdef.cost, fdef.domain);
+        document.getElementById('out').textContent = 'Changed function. Click Run to optimize.';
+    });
+    run_selected();
+</script>
+</body>
+</html>
