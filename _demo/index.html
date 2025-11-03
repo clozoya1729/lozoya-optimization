@@ -69,7 +69,7 @@
     <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2"></script>
 </head>
 <body>
-<h1>Lozoya | Optimization</h1>
+<h1>Lozoya | Optimization Demo</h1>
 <div class="row"><strong>Objective:</strong> <span id="eq">minimize $f(x)=(x-3)^2$</span></div>
 <div class="row controls">
     <label for="fn-select"><strong>Function:</strong></label>
@@ -81,8 +81,8 @@
 <div id="plot"></div>
 <div class="row"><strong>Result</strong></div>
 <div class="row out" id="out">Waiting...</div>
-<script src="math.js"></script>
-<script src="optimizers.js"></script>
+<script src="../src/math.js"></script>
+<script src="../src/optimizers.js"></script>
 <script>
     const FUNCTIONS = {
         parabola: {
